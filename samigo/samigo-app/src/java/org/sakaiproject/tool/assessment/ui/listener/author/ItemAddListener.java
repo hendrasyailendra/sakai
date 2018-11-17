@@ -333,10 +333,10 @@ public class ItemAddListener
 		// RUBRICS, save the binding between the assignment and the rubric
 		if (assessmentBean.getAssessment() instanceof AssessmentFacade) {
 			String associationId = assessmentBean.getAssessmentId().toString() + "." + itemauthorbean.getItemId();
-			rubricsService.saveRubricAssociation(RubricsConstants.RBCS_TOOL_SAMIGO, associationId, paramUtil.getRubricConfigurationParameters(null));
+			rubricsService.saveRubricAssociation(RubricsConstants.RBCS_TOOL_SAMIGO, associationId, paramUtil.getRubricConfigurationParameters(null, null));
 		} else {
 			String pubAssociationId = RubricsConstants.RBCS_PUBLISHED_ASSESSMENT_ENTITY_PREFIX + assessmentBean.getAssessmentId().toString() + "." + itemauthorbean.getItemId();
-			rubricsService.saveRubricAssociation(RubricsConstants.RBCS_TOOL_SAMIGO, pubAssociationId, paramUtil.getRubricConfigurationParameters(null));
+			rubricsService.saveRubricAssociation(RubricsConstants.RBCS_TOOL_SAMIGO, pubAssociationId, paramUtil.getRubricConfigurationParameters(null, null));
 		}
 	}
 	catch (FinFormatException e) {
@@ -874,7 +874,6 @@ public class ItemAddListener
 	    	  else {  //Other Types
 	    		  item.setItemTextSet(prepareText(item, bean, itemauthor));
 	    	  }
-
     	  	
             // prepare MetaData
             item.setItemMetaDataSet(prepareMetaData(item, bean));
@@ -894,7 +893,7 @@ public class ItemAddListener
       	  	}
       }
 
-	  updateAttachments(itemauthor.getAttachmentList(), item);
+	  updateAttachments(itemauthor.getAttachmentList(), item, delegate);
 
 	  //Manage the tags.
 	  String[] tagsFromForm= FacesContext.getCurrentInstance().getExternalContext().getRequestParameterValuesMap().get("tag_selector[]");
@@ -938,7 +937,6 @@ public class ItemAddListener
 	  }
       itemauthor.setTagsList(item.getItemTagSet());//To avoid add extra labels when refreshing the page manually.
 
-
 	  if (isFromQuestionPool) {
         // Came from Pool manager
 		  if (item.getTypeId().equals(TypeFacade.EXTENDED_MATCHING_ITEMS)) {
@@ -953,10 +951,7 @@ public class ItemAddListener
 
         delegate.saveItem(item);
 
-
-
        item = delegate.getItem(item.getItemId().toString());
-
 
         QuestionPoolService qpdelegate = new QuestionPoolService();
 
@@ -1030,7 +1025,6 @@ public class ItemAddListener
               // reorder the sequences of items in the OrigSection
     	      SectionFacade origsect= assessdelegate.getSection(bean.getOrigSection());
 	      shiftItemsInOrigSection(delegate, origsect, oldSeq);
-
 
             }
             else {
@@ -3061,7 +3055,7 @@ public class ItemAddListener
 	  }
   }
 
-	private void updateAttachments(List newList, ItemFacade targetItem) {
+	private void updateAttachments(List newList, ItemFacade targetItem, ItemService delegate) {
 		final Map<Long, ItemAttachmentIfc> oldIds = targetItem.getItemAttachmentMap();
 		if ( newList != null && !(newList.isEmpty()) ) {
 			for (Object o : newList) {
@@ -3078,6 +3072,7 @@ public class ItemAddListener
 		// any "oldIds" left over must be orphans. delete them.
 		for ( Map.Entry<Long, ItemAttachmentIfc> e : oldIds.entrySet() ) {
 			targetItem.removeItemAttachment(e.getValue());
+			delegate.removeItemAttachment(e.getKey());
 		}
 	}
 

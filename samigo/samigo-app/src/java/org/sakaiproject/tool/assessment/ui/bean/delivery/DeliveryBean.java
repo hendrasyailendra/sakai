@@ -2688,7 +2688,7 @@ public class DeliveryBean
     FacesContext context = FacesContext.getCurrentInstance();
     ExternalContext external = context.getExternalContext();
     Long fileSize = (Long)((ServletContext)external.getContext()).getAttribute("TEMP_FILEUPLOAD_SIZE");
-    Long maxSize = (Long)((ServletContext)external.getContext()).getAttribute("FILEUPLOAD_SIZE_MAX");
+    Long maxSize = Long.valueOf(ServerConfigurationService.getInt("samigo.sizeMax", 40960));
 
     ((ServletContext)external.getContext()).removeAttribute("TEMP_FILEUPLOAD_SIZE");
     if (fileSize!=null){
@@ -2976,10 +2976,7 @@ public class DeliveryBean
   }
 
   public boolean getSaveToDb(){
-    FacesContext context = FacesContext.getCurrentInstance();
-    ExternalContext external = context.getExternalContext();
-    String saveToDb = (String)((ServletContext)external.getContext()).getAttribute("FILEUPLOAD_SAVE_MEDIA_TO_DB");
-    return ("true").equals(saveToDb);
+    return ServerConfigurationService.getBoolean("samigo.saveMediaToDb", true);
   }
 
   public void attachToItemContentBean(ItemGradingData itemGradingData, String questionId){
@@ -3455,7 +3452,11 @@ public class DeliveryBean
   }
   
   public String checkBeforeProceed(boolean isSubmitForGrade, boolean isFromTimer){
-	  return checkBeforeProceed(isSubmitForGrade, isFromTimer, false);
+	  boolean isViaUrlLogin = false;
+	  if(AgentFacade.getCurrentSiteId() == null){
+	    isViaUrlLogin = true;
+	  }
+	  return checkBeforeProceed(isSubmitForGrade, isFromTimer, isViaUrlLogin);
   }
 
   private boolean getHasSubmissionLeft(int numberRetake){

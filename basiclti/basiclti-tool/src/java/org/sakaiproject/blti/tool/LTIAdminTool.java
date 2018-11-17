@@ -622,6 +622,8 @@ public class LTIAdminTool extends VelocityPortletPaneledAction {
 		context.put("keySetUrl", keySetUrl);
 		String tokenUrl = SakaiBLTIUtil.getOurServerUrl() + "/imsblis/lti13/token/" + tool.get(LTIService.LTI_ID);
 		context.put("tokenUrl", tokenUrl);
+		String authOIDC = SakaiBLTIUtil.getOurServerUrl() + "/imsblis/lti13/oidc_auth";
+		context.put("authOIDC", authOIDC);
 
 		state.removeAttribute(STATE_SUCCESS);
 		return "lti_tool_view";
@@ -1953,7 +1955,7 @@ public class LTIAdminTool extends VelocityPortletPaneledAction {
 		// Come up with the new content item from the DeepLinkRespons or ContentItem
 		Properties reqProps;
 
-		String id_token = data.getParameters().getString(LTI13JwtUtil.ID_TOKEN);
+		String id_token = data.getParameters().getString(LTI13JwtUtil.JWT);
 		if ( DeepLinkResponse.isRequest(id_token) ) {
 			// Parse and validate the incoming DeepLink
 			String pubkey = (String) tool.get(LTIService.LTI13_TOOL_PUBLIC);
@@ -2250,7 +2252,7 @@ public class LTIAdminTool extends VelocityPortletPaneledAction {
 
 		// Parse the returned information to insert a Content Item from a Deep Link
 		/* {
-                "type": "ltiLink",
+                "type": "ltiResourceLink",
                 "title": "Breakout",
                 "url": "http:\/\/localhost:8888\/tsugi\/mod\/breakout\/",
                 "presentation": {
