@@ -5960,10 +5960,12 @@ public class AssignmentAction extends PagedResourceActionII {
             }
 
             // Persist the rubric evaluations
-            for (AssignmentSubmissionSubmitter submitter : submission.getSubmitters()) {
-                String submitterId = submitter.getSubmitter();
-                rubricsService.saveRubricEvaluation(RubricsConstants.RBCS_TOOL_ASSIGNMENT, submission.getAssignment().getId(), submission.getId(), submitterId, submission.getGradedBy(), getRubricConfigurationParameters(data.getParameters()));
-            }
+            if(rubricsService.hasAssociatedRubric(RubricsConstants.RBCS_TOOL_ASSIGNMENT, submission.getAssignment().getId())){
+                for (AssignmentSubmissionSubmitter submitter : submission.getSubmitters()) {
+                    String submitterId = submitter.getSubmitter();
+                    rubricsService.saveRubricEvaluation(RubricsConstants.RBCS_TOOL_ASSIGNMENT, submission.getAssignment().getId(), submission.getId(), submitterId, submission.getGradedBy(), getRubricConfigurationParameters(data.getParameters()));
+                }
+            }			
         }
 
         if (state.getAttribute(STATE_MESSAGE) == null) {
@@ -6602,6 +6604,7 @@ public class AssignmentAction extends PagedResourceActionII {
 			boolean allowAddAssignment = assignmentService.allowAddAssignment((String) state.getAttribute(STATE_CONTEXT_STRING));
 			boolean allowUpdateAssignment = assignmentService.allowUpdateAssignmentInContext((String) state.getAttribute(STATE_CONTEXT_STRING));
             if (allowAddAssignment && allowUpdateAssignment) {
+            	resetAssignment(state);
                 initializeAssignment(state);
 
                 state.setAttribute(ATTACHMENTS, entityManager.newReferenceList());
@@ -8550,7 +8553,7 @@ public class AssignmentAction extends PagedResourceActionII {
                 e = c.addEvent(/* TimeRange */timeService.newTimeRange(dueTime.toEpochMilli(), 0),
 						/* title */rb.getString("gen.due") + " " + title,
 						/* description */rb.getFormattedMessage("assign_due_event_desc", title, dueTime.toString()),
-						/* type */rb.getString("deadl"),
+						/* type */"Deadline",
 						/* location */"",
 						/* access */ eAccess,
 						/* groups */ eGroups,
@@ -9915,7 +9918,7 @@ public class AssignmentAction extends PagedResourceActionII {
 
                 // populate grade overrides if they exist
                 for (AssignmentSubmissionSubmitter submitter : s.getSubmitters()) {
-                    String gradeOverride = assignmentService.getGradeForSubmitter(s, submitter.getSubmitter());
+                    String gradeOverride = assignmentService.getGradeDisplay(assignmentService.getGradeForSubmitter(s, submitter.getSubmitter()), a.getTypeOfGrade(), a.getScaleFactor());
                     if (!StringUtils.equals(grade, gradeOverride)) {
                         if (a.getIsGroup()) {
                             state.setAttribute(GRADE_SUBMISSION_GRADE + "_" + submitter.getSubmitter(), gradeOverride);
@@ -13124,13 +13127,25 @@ public class AssignmentAction extends PagedResourceActionII {
                         associateGradebookAssignment = assignment.getProperties().get(PROP_ASSIGNMENT_ASSOCIATE_GRADEBOOK_ASSIGNMENT);
                         submissions = assignmentService.getSubmissions(assignment);
                         for (AssignmentSubmission s : submissions) {
-                            String eid = s.getSubmitters().toArray(new AssignmentSubmissionSubmitter[0])[0].getSubmitter();
-                            List<Reference> attachments = entityManager.newReferenceList();
-                            attachments.addAll(s.getAttachments().stream().map(entityManager::newReference).collect(Collectors.toList()));
-                            List<Reference> feedbackAttachments = entityManager.newReferenceList();
-                            feedbackAttachments.addAll(s.getFeedbackAttachments().stream().map(entityManager::newReference).collect(Collectors.toList()));
-                            submissionTable.put(eid, new UploadGradeWrapper(s.getGrade(), s.getSubmittedText(), s.getFeedbackComment(), hasSubmissionAttachment ? new ArrayList() : attachments, hasFeedbackAttachment ? new ArrayList() : feedbackAttachments, (s.getSubmitted() && s.getDateSubmitted() != null) ? Long.toString(s.getDateSubmitted().toEpochMilli()) : "", s.getFeedbackText()));
-                            anonymousSubmissionAndEidTable.put(s.getId(), eid);
+                            String eid = null;
+                            if (assignment.getIsGroup()) {
+                                eid = s.getGroupId();
+                            } else {
+                                Optional<AssignmentSubmissionSubmitter> submitter = s.getSubmitters().stream().findAny();
+                                if (submitter.isPresent()) {
+                                    eid = submitter.get().getSubmitter();
+                                }
+                            }
+                            if (eid != null) {
+                                List<Reference> attachments = entityManager.newReferenceList();
+                                attachments.addAll(s.getAttachments().stream().map(entityManager::newReference).collect(Collectors.toList()));
+                                List<Reference> feedbackAttachments = entityManager.newReferenceList();
+                                feedbackAttachments.addAll(s.getFeedbackAttachments().stream().map(entityManager::newReference).collect(Collectors.toList()));
+                                submissionTable.put(eid, new UploadGradeWrapper(s.getGrade(), s.getSubmittedText(), s.getFeedbackComment(), hasSubmissionAttachment ? new ArrayList() : attachments, hasFeedbackAttachment ? new ArrayList() : feedbackAttachments, (s.getSubmitted() && s.getDateSubmitted() != null) ? Long.toString(s.getDateSubmitted().toEpochMilli()) : "", s.getFeedbackText()));
+                                anonymousSubmissionAndEidTable.put(s.getId(), eid);
+                            } else {
+                                log.warn("Upload missing submitter for submission {}", s.getId());
+                            }
                         }
                     }
 
@@ -13551,10 +13566,20 @@ public class AssignmentAction extends PagedResourceActionII {
                                              Map<String, UploadGradeWrapper> submissionTable, Set<AssignmentSubmission> submissions, Assignment assignment) {
         if (assignment != null && submissions != null) {
             for (AssignmentSubmission submission : submissions) {
-                if (submissionTable.containsKey(submission.getSubmitters().toArray(new AssignmentSubmissionSubmitter[0])[0].getSubmitter())) {
-                    // update the AssignmetnSubmission record
-                    UploadGradeWrapper w = submissionTable.get(submission.getSubmitters().toArray(new AssignmentSubmissionSubmitter[0])[0].getSubmitter());
-
+                String eid;
+                if (assignment.getIsGroup()) {
+                    eid = submission.getGroupId();
+                } else {
+                    Optional<AssignmentSubmissionSubmitter> submitter = submission.getSubmitters().stream().findAny();
+                    if (submitter.isPresent()) {
+                        eid = submitter.get().getSubmitter();
+                    } else {
+                        log.warn("Upload while updating submission missing submitter for submission {}", submission.getId());
+                        continue;
+                    }
+                }
+                UploadGradeWrapper w = submissionTable.get(eid);
+                if (w != null) {
                     // the submission text
                     if (hasSubmissionText) {
                         submission.setSubmittedText(w.getText());

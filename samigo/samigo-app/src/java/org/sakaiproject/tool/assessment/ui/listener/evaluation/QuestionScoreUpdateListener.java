@@ -138,13 +138,8 @@ import org.sakaiproject.tool.cover.SessionManager;
       String which = ContextUtil.lookupParam("allSubmissions");
       if (which == null)
         which = "false";
-      Collection agents = bean.getAgents();
-      //ArrayList items = new ArrayList();
-      Iterator iter = agents.iterator();
-      while (iter.hasNext())
-      {
-        // each agent has a list of modified itemGrading
-        AgentResults ar = (AgentResults) iter.next();
+      List<AgentResults> agents = (List<AgentResults>) bean.getAgents();
+      for(AgentResults ar : agents){
         // Get the itemgradingdata list for this result
         ArrayList datas = (ArrayList) bean.getScoresByItem().get
           (ar.getAssessmentGradingId() + ":" + itemId);
@@ -243,8 +238,10 @@ import org.sakaiproject.tool.cover.SessionManager;
 		  
           // Persist the rubric evaluation
           String entityId = RubricsConstants.RBCS_PUBLISHED_ASSESSMENT_ENTITY_PREFIX + bean.getPublishedId() + "." + bean.getItemId();
-          String evaluatedItemId = ar.getAssessmentGradingId() + "." + bean.getItemId();
-          rubricsService.saveRubricEvaluation(RubricsConstants.RBCS_TOOL_SAMIGO, entityId, evaluatedItemId, ar.getIdString(), SessionManager.getCurrentSessionUserId(), paramUtil.getRubricConfigurationParameters(entityId, evaluatedItemId));
+          if(rubricsService.hasAssociatedRubric(RubricsConstants.RBCS_TOOL_SAMIGO, entityId)){
+            String evaluatedItemId = ar.getAssessmentGradingId() + "." + bean.getItemId();
+            rubricsService.saveRubricEvaluation(RubricsConstants.RBCS_TOOL_SAMIGO, entityId, evaluatedItemId, ar.getIdString(), SessionManager.getCurrentSessionUserId(), paramUtil.getRubricConfigurationParameters(entityId, evaluatedItemId));
+          }
         }
       }
 
@@ -299,7 +296,7 @@ import org.sakaiproject.tool.cover.SessionManager;
 		  eventTrackingService.post(eventTrackingService.newEvent(SamigoConstants.EVENT_ASSESSMENT_STUDENT_SCORE_UPDATE, 
 				  "siteId=" + AgentFacade.getCurrentSiteId() + ", Removing attachmentId = " + attachmentId, true));
 	  }
-	  bean.setIsAnyItemGradingAttachmentListModified(true);
+	  bean.setAnyItemGradingAttachmentListModified(true);
   }
 
   private HashMap getAttachmentIdHash(List list){

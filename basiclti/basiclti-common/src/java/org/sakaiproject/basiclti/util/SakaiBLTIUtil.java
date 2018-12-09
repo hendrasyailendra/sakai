@@ -152,6 +152,8 @@ public class SakaiBLTIUtil {
 	public static final String INCOMING_ROSTER_ENABLED = "basiclti.incoming.roster.enabled";
 	public static final String BASICLTI_ENCRYPTION_KEY = "basiclti.encryption.key";
 	public static final String BASICLTI_LAUNCH_SESSION_TIMEOUT = "basiclti.launch.session.timeout";
+	public static final String LTI13_DEPLOYMENT_ID = "lti13.deployment_id";
+	public static final String LTI13_DEPLOYMENT_ID_DEFAULT = "1"; // To match Moodle
 
 	public static final String SVC_tc_profile = "tc_profile";
 	public static final String SVC_tc_registration = "tc_registration";
@@ -364,11 +366,19 @@ public class SakaiBLTIUtil {
 	}
 
 	public static String encryptSecret(String orig) {
-		if (orig == null || orig.trim().length() < 1) {
+		String encryptionKey = ServerConfigurationService.getString(BASICLTI_ENCRYPTION_KEY, null);
+		return encryptSecret(orig, encryptionKey);
+	}
+
+	// For unit tests mostly
+	public static String encryptSecret(String orig, String encryptionKey) {
+		if (StringUtils.isEmpty(orig) || StringUtils.isEmpty(encryptionKey) ) {
 			return orig;
 		}
-		String encryptionKey = ServerConfigurationService.getString(BASICLTI_ENCRYPTION_KEY, null);
-		if (encryptionKey == null) {
+
+		// Never double encrypt
+		String check = decryptSecret(orig, encryptionKey);
+		if ( ! orig.equals(check) ) {
 			return orig;
 		}
 
@@ -378,18 +388,20 @@ public class SakaiBLTIUtil {
 	}
 
 	public static String decryptSecret(String orig) {
-		if (orig == null || orig.trim().length() < 1) {
-			return orig;
-		}
 		String encryptionKey = ServerConfigurationService.getString(BASICLTI_ENCRYPTION_KEY, null);
-		if (encryptionKey == null) {
+		return decryptSecret(orig, encryptionKey);
+	}
+
+	public static String decryptSecret(String orig, String encryptionKey) {
+		if (StringUtils.isEmpty(orig) || StringUtils.isEmpty(encryptionKey) ) {
 			return orig;
 		}
+
 		try {
 			String newsecret = SimpleEncryption.decrypt(encryptionKey, orig);
 			return newsecret;
 		} catch (RuntimeException re) {
-			log.error("Exception when decrypting secret - this is normal if the secret is unencrypted");
+			log.debug("Exception when decrypting secret - this is normal if the secret is unencrypted");
 			return orig;
 		}
 	}
@@ -1719,6 +1731,28 @@ public class SakaiBLTIUtil {
 		return retval;
 	}
 
+	public static String getIssuer(String site_id) {
+		String retval = getOurServerUrl();
+		String deployment_id = ServerConfigurationService.getString(LTI13_DEPLOYMENT_ID, LTI13_DEPLOYMENT_ID_DEFAULT);
+		if ( ! LTI13_DEPLOYMENT_ID_DEFAULT.equals(deployment_id) ) {
+				retval += "/deployment/" + deployment_id;
+		}
+		if ( StringUtils.isNotEmpty(site_id) ) {
+			retval = retval + "/site/" + site_id;
+		}
+		return retval;
+	}
+
+	public static String getSubject(String user_id) {
+		String retval = getOurServerUrl();
+		String deployment_id = ServerConfigurationService.getString(LTI13_DEPLOYMENT_ID, LTI13_DEPLOYMENT_ID_DEFAULT);
+		if ( ! LTI13_DEPLOYMENT_ID_DEFAULT.equals(deployment_id) ) {
+				retval += "/deployment/" + deployment_id;
+		}
+		retval = retval + "/user/" + user_id;
+		return retval;
+	}
+
 	public static String[] postLaunchJWT(Properties toolProps, Properties ltiProps,
 			Map<String, Object> tool, Map<String, Object> content, ResourceLoader rb) {
 		String launch_url = toolProps.getProperty("secure_launch_url");
@@ -1735,11 +1769,10 @@ public class SakaiBLTIUtil {
 		String org_url = ServerConfigurationService.getString("basiclti.consumer_instance_url",
 				ServerConfigurationService.getString("serverUrl", null));
 
+		String site_id = (String) tool.get(LTIService.LTI_SITE_ID);
 		String client_id = (String) tool.get(LTIService.LTI13_CLIENT_ID);
-		String tool_public = (String) tool.get(LTIService.LTI13_TOOL_PUBLIC);
-		String tool_private = (String) tool.get(LTIService.LTI13_TOOL_PRIVATE);
 		String platform_public = (String) tool.get(LTIService.LTI13_PLATFORM_PUBLIC);
-		String platform_private = (String) tool.get(LTIService.LTI13_PLATFORM_PRIVATE);
+		String platform_private = decryptSecret((String) tool.get(LTIService.LTI13_PLATFORM_PRIVATE));
 		String placement_secret = null;
 		if (content != null) {
 			placement_secret = (String) content.get(LTIService.LTI_PLACEMENTSECRET);
@@ -1798,16 +1831,10 @@ user_id: admin
 		lj.launch_presentation.css_url = ltiProps.getProperty("launch_presentation_css_url");
 		lj.locale = ltiProps.getProperty("launch_presentation_locale");
 		lj.launch_presentation.return_url = ltiProps.getProperty("launch_presentation_return_url");
-		lj.issuer = getOurServerUrl();
 		lj.audience = client_id;
-		String deployment_id = ServerConfigurationService.getString("lti13.deployment_id", "1");
-		lj.deployment_id = deployment_id;
-		String subject = getOurServerUrl();
-		if ( ! "1".equals(deployment_id) ) {
-				subject += "/deployment/" + deployment_id;
-		}
-		lj.subject = subject + "/user/" + ltiProps.getProperty("user_id");
+		lj.issuer = getIssuer(site_id);
 		lj.lti1_1_user_id = (String) ltiProps.getProperty("user_id");
+		lj.subject = getSubject(lj.lti1_1_user_id);
 		lj.name = ltiProps.getProperty("lis_person_name_full");
 		lj.nonce = toolProps.getProperty("nonce");
 		lj.email = ltiProps.getProperty("lis_person_contact_email_primary");
@@ -1960,6 +1987,11 @@ user_id: admin
 
 		Key privateKey = LTI13Util.string2PrivateKey(platform_private);
 		Key publicKey = LTI13Util.string2PublicKey(platform_public);
+
+		if ( privateKey == null | publicKey == null ) {
+			return postError("<p>" + getRB(rb, "error.no.pki", "Public and/or Private Key(s) not configured.") + "</p>");
+		}
+
 		String kid = LTI13KeySetUtil.getPublicKID(publicKey);
 
 		String jws = Jwts.builder().setHeaderParam("kid", kid).
